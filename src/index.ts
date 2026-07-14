@@ -31,6 +31,23 @@ export interface CacheOptions {
    * `firebaseEmulatorCacheEnabled` to auto-enable against emulators only.
    */
   enabled?: boolean | (() => boolean);
+  /**
+   * Transform the serialized request before it's hashed into the cache key. Use
+   * this to blank out volatile-but-irrelevant values (e.g. random Firestore doc
+   * ids) so two requests that differ only in those still share a key. The full
+   * body is still sent and stored — only the key ignores the blanked bits.
+   * Ships `firestoreIdNormalizer` for the common Firebase case.
+   */
+  keyNormalizer?: (serialized: string) => string;
+}
+
+/**
+ * Blanks standalone 20-char Firestore auto-ids (`[A-Za-z0-9]{20}`) so cache keys
+ * are stable when a request embeds random doc ids the model doesn't depend on
+ * (e.g. a `logId` replayed in tool-call results). Pass as `keyNormalizer`.
+ */
+export function firestoreIdNormalizer(serialized: string): string {
+  return serialized.replace(/(?<![A-Za-z0-9])[A-Za-z0-9]{20}(?![A-Za-z0-9])/g, "<id>");
 }
 
 /** Opt-in default: on only when `LLM_CACHE` is truthy. */
@@ -83,10 +100,14 @@ function stableStringify(value: unknown): string {
 }
 
 /** SHA256 over the API surface + normalized request body. */
-export function llmCacheKey(surface: string, body: unknown): string {
-  return createHash("sha256")
-    .update(surface + "\n" + stableStringify(body))
-    .digest("hex");
+export function llmCacheKey(
+  surface: string,
+  body: unknown,
+  keyNormalizer?: (serialized: string) => string,
+): string {
+  let serialized = stableStringify(body);
+  if (keyNormalizer) serialized = keyNormalizer(serialized);
+  return createHash("sha256").update(surface + "\n" + serialized).digest("hex");
 }
 
 function resolveDir(opts: CacheOptions): string {
@@ -141,7 +162,7 @@ function cachedCreate(
     // Streaming responses can't be replayed from a stored object — pass through.
     if (!isEnabled(opts) || body?.stream) return realCreate(body, ...rest);
     const dir = resolveDir(opts);
-    const key = llmCacheKey(surface, body);
+    const key = llmCacheKey(surface, body, opts.keyNormalizer);
     const hit = readCache(dir, key);
     if (hit !== undefined) return hit;
     const response = await realCreate(body, ...rest);

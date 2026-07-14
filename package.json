@@ -1,6 +1,6 @@
 {
   "name": "llm-fs-cache",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Filesystem-backed read-through cache for LLM SDK clients — commit the fixtures and replay LLM-backed tests for free in CI instead of hitting the paid API.",
   "keywords": [
     "openai",
