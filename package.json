@@ -1,0 +1,40 @@
+{
+  "name": "llm-fs-cache",
+  "version": "0.1.0",
+  "description": "Filesystem-backed read-through cache for LLM SDK clients — commit the fixtures and replay LLM-backed tests for free in CI instead of hitting the paid API.",
+  "keywords": [
+    "openai",
+    "llm",
+    "cache",
+    "fixtures",
+    "testing",
+    "ci",
+    "record-replay",
+    "vcr"
+  ],
+  "license": "MIT",
+  "author": "Michael Dawson",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/michaeldawson/llm-fs-cache.git"
+  },
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc --noEmit && node --import tsx --test src/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
