@@ -135,3 +135,72 @@ test("firebaseEmulatorCacheEnabled: off deployed, on in emulator", () => {
   assert.equal(firebaseEmulatorCacheEnabled(), true);
   process.env = save;
 });
+
+// A scenario that creates docs mid-conversation: the recording run got ids
+// A…/B…, the replay run gets fresh ids X…/Y…, and the model's recorded reply
+// cites the recording's id back into a tool call.
+const REC_A = "AAAAAAAAAAAAAAAAAAA1";
+const REC_B = "BBBBBBBBBBBBBBBBBBB2";
+const LIVE_A = "XXXXXXXXXXXXXXXXXXX1";
+const LIVE_B = "YYYYYYYYYYYYYYYYYYY2";
+
+function recordFixture(dir: string, body: unknown, response: unknown) {
+  const recorder = wrapOpenAIWithCache(
+    { responses: { create: async () => response } } as any,
+    { dir, enabled: true, keyNormalizer: firestoreIdNormalizer },
+  );
+  return recorder.responses.create(body);
+}
+
+test("remapIds: a replayed response cites the live ids the request carried", async () => {
+  const dir = tmp();
+  await recordFixture(
+    dir,
+    { input: `created ${REC_A} and ${REC_B}` },
+    { output: [{ arguments: `{"tacticIds":["${REC_B}","${REC_A}"]}` }] },
+  );
+
+  const replayer = wrapOpenAIWithCache(
+    { responses: { create: async () => assert.fail("should replay") } } as any,
+    { dir, enabled: true, keyNormalizer: firestoreIdNormalizer, remapIds: true },
+  );
+  const replayed = await replayer.responses.create({
+    input: `created ${LIVE_A} and ${LIVE_B}`,
+  });
+  assert.equal(
+    replayed.output[0].arguments,
+    `{"tacticIds":["${LIVE_B}","${LIVE_A}"]}`,
+  );
+});
+
+test("remapIds: the mapping carries across calls, and unknown ids are left alone", async () => {
+  const dir = tmp();
+  const INVENTED = "ZZZZZZZZZZZZZZZZZZZ9";
+  // Turn 1 hands the model an id; turn 2's reply cites it (and one it made up)
+  // without the id appearing in turn 2's own request.
+  await recordFixture(dir, { input: `created ${REC_A}` }, { output_text: "ok" });
+  await recordFixture(
+    dir,
+    { input: "now build the plan" },
+    { output_text: `plan uses ${REC_A} and ${INVENTED}` },
+  );
+
+  const replayer = wrapOpenAIWithCache(
+    { responses: { create: async () => assert.fail("should replay") } } as any,
+    { dir, enabled: true, keyNormalizer: firestoreIdNormalizer, remapIds: true },
+  );
+  await replayer.responses.create({ input: `created ${LIVE_A}` });
+  const second = await replayer.responses.create({ input: "now build the plan" });
+  assert.equal(second.output_text, `plan uses ${LIVE_A} and ${INVENTED}`);
+});
+
+test("without remapIds a replay returns the fixture verbatim", async () => {
+  const dir = tmp();
+  await recordFixture(dir, { input: `created ${REC_A}` }, { output_text: `id ${REC_A}` });
+  const replayer = wrapOpenAIWithCache(
+    { responses: { create: async () => assert.fail("should replay") } } as any,
+    { dir, enabled: true, keyNormalizer: firestoreIdNormalizer },
+  );
+  const replayed = await replayer.responses.create({ input: `created ${LIVE_A}` });
+  assert.equal(replayed.output_text, `id ${REC_A}`);
+});
